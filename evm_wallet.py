@@ -65,20 +65,20 @@ class Level(NamedTuple):
 
 
 LEVELS: Dict[str, Level] = {
-    "account": Level(
-        "m/44'/60'/i'/0/0",
-        (44 | HARDENED, COIN | HARDENED),
-        lambda index: (index | HARDENED, 0, 0),
+    "index": Level(
+        "m/44'/60'/0'/0/i",
+        (44 | HARDENED, COIN | HARDENED, HARDENED, 0),
+        lambda index: (index,),
     ),
     "change": Level(
         "m/44'/60'/0'/i/0",
         (44 | HARDENED, COIN | HARDENED, HARDENED),
         lambda index: (index, 0),
     ),
-    "index": Level(
-        "m/44'/60'/0'/0/i",
-        (44 | HARDENED, COIN | HARDENED, HARDENED, 0),
-        lambda index: (index,),
+    "account": Level(
+        "m/44'/60'/i'/0/0",
+        (44 | HARDENED, COIN | HARDENED),
+        lambda index: (index | HARDENED, 0, 0),
     ),
 }
 
@@ -702,6 +702,7 @@ def run_search(config: SearchConfig) -> SearchResult:
     processes_by_id: Dict[int, Any] = {}
     live: set = set()
     hits: List[Tuple[int, str, str]] = []
+    pending: List[Tuple[int, str, str]] = []
     failures: List[str] = []
     checked = 0
     span = config.end - config.start
@@ -710,6 +711,31 @@ def run_search(config: SearchConfig) -> SearchResult:
     idle_since: Optional[float] = None
     interrupted = False
     started = time.monotonic()
+
+    def emit_ready(up_to: Optional[int]) -> None:
+        nonlocal deadline
+        if not pending:
+            return
+        pending.sort()
+        while pending and not (config.limit and len(hits) >= config.limit):
+            index, address, private_key = pending[0]
+            if up_to is not None and index > up_to:
+                break
+            pending.pop(0)
+            hits.append((index, address, private_key))
+            clear_line(show_progress)
+            print(f"{index:<14}{address}", flush=True)
+            if handle is not None:
+                handle.write(f"{index:<14}{address:<46}{private_key}".rstrip() + "\n")
+                handle.flush()
+                try:
+                    os.fsync(handle.fileno())
+                except OSError:
+                    pass
+        if config.limit and len(hits) >= config.limit:
+            stop.set()
+            if deadline is None:
+                deadline = time.monotonic() + SHUTDOWN_GRACE
 
     def on_interrupt(_signum: int, _frame: Any) -> None:
         nonlocal interrupted, deadline
@@ -762,24 +788,10 @@ def run_search(config: SearchConfig) -> SearchResult:
                 _, worker_id, count, last_index = message
                 checked += count
                 frontier[worker_id] = max(frontier[worker_id], last_index)
+                emit_ready(min(frontier.values()))
             elif kind == HIT:
-                if config.limit and len(hits) >= config.limit:
-                    continue
                 _, _, index, address, private_key = message
-                hits.append((index, address, private_key))
-                clear_line(show_progress)
-                print(f"{index:<14}{address}", flush=True)
-                if handle is not None:
-                    handle.write(f"{index:<14}{address:<46}{private_key}".rstrip() + "\n")
-                    handle.flush()
-                    try:
-                        os.fsync(handle.fileno())
-                    except OSError:
-                        pass
-                if config.limit and len(hits) >= config.limit:
-                    stop.set()
-                    if deadline is None:
-                        deadline = time.monotonic() + SHUTDOWN_GRACE
+                pending.append((index, address, private_key))
             elif kind == FAILED:
                 failures.append(f"worker {message[1]}: {message[2]}")
                 stop.set()
@@ -788,6 +800,7 @@ def run_search(config: SearchConfig) -> SearchResult:
             elif kind == DONE:
                 live.discard(message[1])
             render_progress(checked, span, len(hits), time.monotonic() - started, show_progress)
+        emit_ready(None)
     finally:
         elapsed = time.monotonic() - started
         stop.set()

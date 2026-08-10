@@ -232,10 +232,10 @@ Enter seed phrase: <your seed phrase — visible so you can proofread it>
 Seed phrase received: 12 words
 
 Select derivation path style:
-  1) m/44'/60'/i'/0/0
+  1) m/44'/60'/0'/0/i
   2) m/44'/60'/0'/i/0
-  3) m/44'/60'/0'/0/i
-Choice: 3
+  3) m/44'/60'/i'/0/0
+Choice: 1
 Using path: m/44'/60'/0'/0/i
 
 Prefix (blank to skip): cafe
@@ -323,9 +323,9 @@ Just like the search tools, whatever you type stays visible so you can check it'
 
 | Path | Used by |
 |:--|:--|
-| `m/44'/60'/i'/0/0` | **Ledger Live** |
-| `m/44'/60'/0'/i/0` | less common wallets |
 | `m/44'/60'/0'/0/i` | **MetaMask, Trust Wallet, Phantom** (the most common one) |
+| `m/44'/60'/0'/i/0` | less common wallets |
+| `m/44'/60'/i'/0/0` | **Ledger Live** |
 
 **Solana**
 
